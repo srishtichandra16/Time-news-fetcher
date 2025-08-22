@@ -7,101 +7,101 @@ import html
 
 app = Flask(__name__)
 
-BASE_URL = "https://time.com"
+TIME_BASE_URL = "https://time.com"
 
 
-def fetch_html(url: str) -> str:
+def get_html_content(url: str) -> str:
     """
-    Fetch HTML using urllib (standard library only).
-    Adds a User-Agent to avoid getting blocked.
+    Retrieve HTML content from a URL using urllib.
+    Sets a User-Agent to avoid being blocked by the website.
     """
-    req = urllib.request.Request(
+    request = urllib.request.Request(
         url,
-        headers={"User-Agent": "Mozilla/5.0 (compatible; TimeLatestStoriesBot/1.0)"}
+        headers={"User-Agent": "Mozilla/5.0 (compatible; MyTimeBot/1.0)"}
     )
-    with urllib.request.urlopen(req, timeout=15) as resp:
-        charset = resp.headers.get_content_charset() or "utf-8"
-        return resp.read().decode(charset, errors="replace")
+    with urllib.request.urlopen(request, timeout=15) as response:
+        encoding = response.headers.get_content_charset() or "utf-8"
+        return response.read().decode(encoding, errors="replace")
 
 
-def strip_tags(text: str) -> str:
-   
-    no_tags = re.sub(r"<[^>]*>", "", text, flags=re.DOTALL)
-    return html.unescape(no_tags).strip()
-
-
-def parse_latest_stories(html_text: str, max_items: int = 6):
+def clean_html_tags(raw_text: str) -> str:
     """
-    Finds TIME article links (with 7+ digit IDs in URL), extracts titles,
-    cleans text, and returns up to `max_items` stories.
+    Remove HTML tags and unescape HTML entities.
     """
-    stories = []
-    seen_links = set()
+    text_without_tags = re.sub(r"<[^>]+>", "", raw_text, flags=re.DOTALL)
+    return html.unescape(text_without_tags).strip()
 
-    anchor_pattern = re.compile(
-        r'<a[^>]+href=["\'](?P<href>[^"\']+)["\'][^>]*>(?P<text>.*?)</a>',
-        re.IGNORECASE | re.DOTALL,
+
+def extract_time_stories(html_text: str, limit: int = 6):
+    """
+    Extracts TIME.com articles (with numeric IDs) and returns a list of dictionaries.
+    """
+    stories_list = []
+    visited_links = set()
+
+    anchor_regex = re.compile(
+        r'<a[^>]+href=["\'](?P<href>[^"\']+)["\'][^>]*>(?P<content>.*?)</a>',
+        re.IGNORECASE | re.DOTALL
     )
-    article_id_pattern = re.compile(r"/\d{7,}/", re.IGNORECASE)
+    article_id_regex = re.compile(r"/\d{7,}/")
 
-    for m in anchor_pattern.finditer(html_text):
-        href = m.group("href")
-        text = m.group("text")
+    for match in anchor_regex.finditer(html_text):
+        href = match.group("href")
+        content = match.group("content")
 
       
         if href.startswith("//"):
             href = "https:" + href
         elif href.startswith("/"):
-            href = urljoin(BASE_URL, href)
+            href = urljoin(TIME_BASE_URL, href)
 
-    
-        if not href.startswith("https://time.com"):
+        if not href.startswith(TIME_BASE_URL):
             continue
-        if not article_id_pattern.search(href):
+        if not article_id_regex.search(href):
             continue
 
-        title = strip_tags(text)
+        title = clean_html_tags(content)
         if not title:
             continue
-
-     
         title = " ".join(title.split())
 
-        if href not in seen_links:
-            stories.append({"title": title, "link": href})
-            seen_links.add(href)
+        if href not in visited_links:
+            stories_list.append({"title": title, "link": href})
+            visited_links.add(href)
 
-        if len(stories) >= max_items:
+        if len(stories_list) >= limit:
             break
 
-    return stories
+    return stories_list
 
 
 @app.get("/getTimeStories")
-def get_time_stories():
+def get_stories():
     try:
-        page_html = fetch_html(BASE_URL)
-        items = parse_latest_stories(page_html, max_items=6)
+        page_content = get_html_content(TIME_BASE_URL)
+        stories = extract_time_stories(page_content, limit=6)
 
-        if not items:
-            return jsonify({"error": "No stories found. Page structure may have changed."}), 502
+        if not stories:
+            return jsonify({"error": "No stories found. Page layout may have changed."}), 502
 
-        return jsonify(items)
+        return jsonify(stories)
     except (urllib.error.URLError, urllib.error.HTTPError) as e:
         return jsonify({"error": f"Failed to fetch Time.com: {e}"}), 502
     except Exception as e:
         return jsonify({"error": f"Unexpected error: {e}"}), 500
 
+
 @app.get("/")
-def root():
+def home():
     return Response(
-        "Server is running. Go to /getTimeStories to fetch the latest 6 Time.com stories in JSON.",
+        "Server is active. Visit /getTimeStories to get the latest 6 Time.com stories in JSON format.",
         mimetype="text/plain",
     )
 
 
 if __name__ == "__main__":
-    print("Server running on http://127.0.0.1:5000/getTimeStories")
-    app.run(host="127.0.0.1", port=5000, debug=True, use_reloader=True)
+    print("Server running at http://127.0.0.1:5000/getTimeStories")
+    app.run(host="127.0.0.1", port=5000, debug=True)
+
 
 
